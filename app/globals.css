@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+:root {
+  --background: #030712; /* gray-950 */
+  --foreground: #f3f4f6; /* gray-100 */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Custom component utilities ─────────────────────────────── */
+@layer components {
+  /* Navbar link shared style */
+  .nav-link {
+    @apply text-sm text-gray-400 hover:text-gray-100 transition-colors duration-150 px-1 py-0.5;
+  }
+
+  /* Generic card */
+  .vault-card {
+    @apply rounded-2xl border border-gray-800 bg-gray-900 p-6;
+  }
+
+  /* Status badge */
+  .badge-encrypted {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs
+           font-medium bg-emerald-950 text-emerald-400 border border-emerald-800;
+  }
+
+  .badge-syncing {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs
+           font-medium bg-indigo-950 text-indigo-400 border border-indigo-800;
+  }
+
+  .badge-warning {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs
+           font-medium bg-amber-950 text-amber-400 border border-amber-800;
+  }
+}

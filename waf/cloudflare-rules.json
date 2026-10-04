@@ -1,0 +1,66 @@
+{
+  "description": "Cloudflare WAF and Rate Limiting Ruleset for SecureVault",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "id": "rate_limit_auth_nonce",
+      "action": "block",
+      "description": "Rate limit SIWE nonce generation to 10 requests/min per IP",
+      "expression": "(http.request.uri.path eq \"/api/auth/nonce\")",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 10,
+        "mitigation_timeout": 60
+      }
+    },
+    {
+      "id": "rate_limit_auth_verify",
+      "action": "block",
+      "description": "Rate limit SIWE verification to 10 attempts/min per IP to prevent signature brute forcing",
+      "expression": "(http.request.uri.path eq \"/api/auth/verify\" and http.request.method eq \"POST\")",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 10,
+        "mitigation_timeout": 300
+      }
+    },
+    {
+      "id": "rate_limit_uploads",
+      "action": "challenge",
+      "description": "Rate limit encrypted file upload endpoint to 30 requests/min per IP",
+      "expression": "(http.request.uri.path eq \"/api/files\" and http.request.method eq \"POST\")",
+      "ratelimit": {
+        "characteristics": ["ip.src"],
+        "period": 60,
+        "requests_per_period": 30,
+        "mitigation_timeout": 120
+      }
+    },
+    {
+      "id": "block_common_sqli_xss",
+      "action": "block",
+      "description": "Block SQLi, XSS, and command injection patterns in request URI and headers",
+      "expression": "(http.request.uri.query contains \"<script>\" or http.request.uri.query contains \"union+select\" or http.request.uri.query contains \"..%2f\" or http.request.uri.query contains \"../\" or http.request.uri.path contains \"../\" or http.request.uri.path contains \"..%2f\")"
+    },
+    {
+      "id": "challenge_suspicious_threats",
+      "action": "managed_challenge",
+      "description": "Challenge requests with high threat score or suspicious bot signatures",
+      "expression": "(cf.threat_score gt 25 or (cf.client.bot and not cf.verified_bot_category in {\"Search Engine Crawler\"}))"
+    },
+    {
+      "id": "csrf_protection_api",
+      "action": "block",
+      "description": "Enforce presence of valid Sec-Fetch-Site or Origin header on POST/PUT/DELETE API endpoints",
+      "expression": "(http.request.uri.path matches \"^/api/\" and http.request.method in {\"POST\", \"PUT\", \"DELETE\"} and not (http.request.headers[\"sec-fetch-site\"][0] in {\"same-origin\", \"same-site\"} or http.request.headers[\"origin\"][0] matches \"^https?://(localhost|.*\\.yourdomain\\.com)\"))"
+    },
+    {
+      "id": "admin_route_challenge",
+      "action": "managed_challenge",
+      "description": "Managed challenge for all /admin requests from unexpected networks",
+      "expression": "(http.request.uri.path matches \"^/admin\")"
+    }
+  ]
+}

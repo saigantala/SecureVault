@@ -1,0 +1,42 @@
+{
+  "name": "securevault",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:migrate": "npx tsx db/migrate.ts",
+    "db:migrate:dev": "dotenv -e .env.local -- npx tsx db/migrate.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1140.0",
+    "@aws-sdk/lib-storage": "^3.1140.0",
+    "@aws-sdk/s3-request-presigner": "^3.1140.0",
+    "@tanstack/react-query": "^5.103.2",
+    "jose": "^6.2.12",
+    "next": "16.3.6",
+    "nodemailer": "^10.0.10",
+    "pg": "^8.23.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "siwe": "^3.0.0",
+    "viem": "^2.56.9",
+    "wagmi": "^3.7.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^18.0.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}
