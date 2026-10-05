@@ -13,6 +13,7 @@ export const wagmiConfig = createConfig({
   chains: [mainnet, sepolia],
   connectors: [
     injected({ target: "metaMask" }),
+    injected(),
     walletConnect({ projectId: WALLETCONNECT_PROJECT_ID }),
   ],
   transports: {

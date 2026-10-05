@@ -148,8 +148,17 @@ export function UploadZone() {
         </div>
       )}
       {keyState.status === "error" && (
-        <div className="px-4 py-3 rounded-xl bg-red-950 border border-red-700 text-red-200 text-sm">
-          ⚠️ {keyState.message}
+        <div className="px-4 py-3 rounded-xl bg-red-950/80 border border-red-700 text-red-200 text-sm flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span>{keyState.message}</span>
+          </div>
+          <button
+            onClick={() => deriveKey()}
+            className="px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shrink-0 transition-colors"
+          >
+            Reconnect & Sign
+          </button>
         </div>
       )}
       {keyState.status === "ready" && (
