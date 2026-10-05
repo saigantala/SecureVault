@@ -130,10 +130,17 @@ export function ConnectWallet({ redirectTo = "/app/dashboard" }: ConnectWalletPr
       // 1. Fetch single-use nonce
       const nonceRes = await fetch(`/api/auth/nonce?address=${address}`);
       if (!nonceRes.ok) {
-        const d = await nonceRes.json().catch(() => ({ error: "Failed to fetch nonce." }));
-        throw new Error(d.error || "Failed to fetch nonce from server.");
+        let msg = "Failed to connect to authentication service.";
+        try {
+          const d = await nonceRes.json();
+          if (d.error) msg = d.error;
+        } catch {
+          msg = `Server returned status ${nonceRes.status}. Please check database connection.`;
+        }
+        throw new Error(msg);
       }
-      const { nonce } = await nonceRes.json();
+      const nonceData = await nonceRes.json();
+      const nonce = nonceData.nonce;
 
       // 2. Build & request wallet signature
       const siweMessage = new SiweMessage({

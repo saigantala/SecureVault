@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SiweMessage } from "siwe";
 import { SignJWT } from "jose";
-import { db } from "@/lib/db";
+import { db, verifyMemoryNonce, ensureDatabaseSchema } from "@/lib/db";
 import {
   verifyIpLimiter,
   verifyWalletLimiter,
@@ -71,77 +71,108 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // ── Validate nonce (single-use, not expired) ─────────────────────────
-  const nonceRow = await db.query<{ id: string }>(
-    `SELECT id FROM auth_nonces
-     WHERE wallet_address = $1 AND nonce = $2
-       AND used = false AND expires_at > now()`,
-    [address, siwe.nonce]
-  );
+  // ── Validate nonce (check DB first, with memory fallback) ─────────────
+  let nonceValid = false;
+  let nonceDbId: string | null = null;
 
-  if (nonceRow.rowCount === 0) {
-    await db.query(
-      `INSERT INTO audit_log (event_type, ip_address, user_agent, metadata)
-       VALUES ('failed_login', $1, $2, $3)`,
-      [ip, userAgent, JSON.stringify({ address, reason: "nonce_invalid" })]
-    );
-    return NextResponse.json({ error: "Nonce invalid or expired." }, { status: 401 });
+  if (process.env.DATABASE_URL) {
+    try {
+      await ensureDatabaseSchema();
+      const nonceRow = await db.query<{ id: string }>(
+        `SELECT id FROM auth_nonces
+         WHERE wallet_address = $1 AND nonce = $2
+           AND used = false AND expires_at > now()`,
+        [address, siwe.nonce]
+      );
+
+      if (nonceRow.rowCount && nonceRow.rowCount > 0) {
+        nonceValid = true;
+        nonceDbId = nonceRow.rows[0].id;
+      }
+    } catch (err) {
+      console.warn("[verify] DB nonce check failed, checking memory store:", (err as Error).message);
+    }
   }
 
-  // Mark nonce used atomically
-  await db.query(`UPDATE auth_nonces SET used = true WHERE id = $1`, [
-    nonceRow.rows[0].id,
-  ]);
+  // Fallback to in-memory store
+  if (!nonceValid) {
+    nonceValid = verifyMemoryNonce(address, siwe.nonce);
+  }
+
+  if (!nonceValid) {
+    return NextResponse.json({ error: "Nonce invalid or expired. Please reconnect your wallet." }, { status: 401 });
+  }
+
+  if (nonceDbId) {
+    try {
+      await db.query(`UPDATE auth_nonces SET used = true WHERE id = $1`, [nonceDbId]);
+    } catch {}
+  }
 
   // ── Upsert user, capture previous IP/UA ─────────────────────────────
-  const userRow = await db.query<{
-    id: string;
-    last_ip: string | null;
-    last_user_agent: string | null;
-    role: string;
-    email: string | null;
-  }>(
-    `INSERT INTO users (wallet_address, last_login_at, last_ip, last_user_agent)
-     VALUES ($1, now(), $2, $3)
-     ON CONFLICT (wallet_address)
-     DO UPDATE SET
-       last_login_at   = now(),
-       last_ip         = EXCLUDED.last_ip,
-       last_user_agent = EXCLUDED.last_user_agent
-     RETURNING id, last_ip, last_user_agent, role`,
-    [address, ip, userAgent]
-  );
+  let user = {
+    id: address,
+    last_ip: null as string | null,
+    last_user_agent: null as string | null,
+    role: "user",
+    email: null as string | null,
+  };
 
-  const user = userRow.rows[0];
+  let isNewIp = false;
+  let isNewDevice = false;
 
-  // ── Anomaly detection ────────────────────────────────────────────────
-  const prevIp = user.last_ip;
-  const prevUA = user.last_user_agent;
-  const isNewIp = Boolean(prevIp && prevIp !== ip);
-  const isNewDevice = Boolean(prevUA && prevUA !== userAgent);
+  if (process.env.DATABASE_URL) {
+    try {
+      await ensureDatabaseSchema();
+      const userRow = await db.query<{
+        id: string;
+        last_ip: string | null;
+        last_user_agent: string | null;
+        role: string;
+        email: string | null;
+      }>(
+        `INSERT INTO users (wallet_address, last_login_at, last_ip, last_user_agent)
+         VALUES ($1, now(), $2, $3)
+         ON CONFLICT (wallet_address)
+         DO UPDATE SET
+           last_login_at   = now(),
+           last_ip         = EXCLUDED.last_ip,
+           last_user_agent = EXCLUDED.last_user_agent
+         RETURNING id, last_ip, last_user_agent, role, email`,
+        [address, ip, userAgent]
+      );
+
+      if (userRow.rows[0]) {
+        user = userRow.rows[0];
+        const prevIp = user.last_ip;
+        const prevUA = user.last_user_agent;
+        isNewIp = Boolean(prevIp && prevIp !== ip);
+        isNewDevice = Boolean(prevUA && prevUA !== userAgent);
+      }
+    } catch (err) {
+      console.warn("[verify] DB user upsert failed, continuing session:", (err as Error).message);
+    }
+  }
+
   const anomaly = isNewIp || isNewDevice;
   const anomalyReason = isNewIp ? "new_ip" : isNewDevice ? "new_device" : null;
 
-  if (anomaly && anomalyReason) {
-    // Write anomaly to audit log
-    await db.query(
-      `INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata)
-       VALUES ($1, 'anomaly', $2, $3, $4)`,
-      [
-        user.id, ip, userAgent,
-        JSON.stringify({ reason: anomalyReason, prevIp, newIp: ip, prevUA }),
-      ]
-    );
+  if (anomaly && anomalyReason && user.id !== address) {
+    try {
+      await db.query(
+        `INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata)
+         VALUES ($1, 'anomaly', $2, $3, $4)`,
+        [
+          user.id, ip, userAgent,
+          JSON.stringify({ reason: anomalyReason, newIp: ip }),
+        ]
+      );
+    } catch {}
 
-    // Send email alert (non-blocking — failure must not block login)
-    const emailCol = await db.query<{ email: string | null }>(
-      `SELECT email FROM users WHERE id = $1`,
-      [user.id]
-    );
-    const toEmail = emailCol.rows[0]?.email;
-    if (toEmail) {
+    // Send email alert (non-blocking)
+    if (user.email) {
       void sendAnomalyAlert({
-        toEmail,
+        toEmail: user.email,
         walletAddress: address,
         reason: anomalyReason as "new_ip" | "new_device",
         ip,
@@ -152,26 +183,28 @@ export async function POST(req: NextRequest) {
   }
 
   // If email was provided in the login payload, save it to the user's profile
-  if (body.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
-    await db.query(`UPDATE users SET email = $1 WHERE id = $2`, [
-      body.email.trim().toLowerCase(),
-      user.id,
-    ]);
+  if (body.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email) && user.id !== address) {
+    try {
+      await db.query(`UPDATE users SET email = $1 WHERE id = $2`, [
+        body.email.trim().toLowerCase(),
+        user.id,
+      ]);
+    } catch {}
   }
 
   // ── Write login audit event ──────────────────────────────────────────
-  await db.query(
-    `INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata)
-     VALUES ($1, 'login', $2, $3, $4)`,
-    [user.id, ip, userAgent, JSON.stringify({ anomaly, anomalyReason })]
-  );
+  if (user.id !== address) {
+    try {
+      await db.query(
+        `INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata)
+         VALUES ($1, 'login', $2, $3, $4)`,
+        [user.id, ip, userAgent, JSON.stringify({ anomaly, anomalyReason })]
+      );
+    } catch {}
+  }
 
   // ── Dispatch login notification email ────────────────────────────────
-  const emailCol = await db.query<{ email: string | null }>(
-    `SELECT email FROM users WHERE id = $1`,
-    [user.id]
-  );
-  const targetEmail = body.email?.trim().toLowerCase() || emailCol.rows[0]?.email;
+  const targetEmail = body.email?.trim().toLowerCase() || user.email;
   if (targetEmail) {
     void sendLoginAlert({
       toEmail: targetEmail,

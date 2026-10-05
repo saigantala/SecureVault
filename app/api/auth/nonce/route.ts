@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
-import { db } from "@/lib/db";
+import { db, storeMemoryNonce, ensureDatabaseSchema } from "@/lib/db";
 import {
   nonceIpLimiter,
   nonceWalletLimiter,
@@ -57,11 +57,22 @@ export async function GET(req: NextRequest) {
   const nonce = randomBytes(16).toString("hex"); // 32 hex chars
   const expiresAt = new Date(Date.now() + 5 * 60_000); // 5-min TTL
 
-  await db.query(
-    `INSERT INTO auth_nonces (wallet_address, nonce, expires_at)
-     VALUES ($1, $2, $3)`,
-    [normalizedAddress, nonce, expiresAt]
-  );
+  // Always store in memory store first (fail-safe fallback)
+  storeMemoryNonce(normalizedAddress, nonce);
+
+  // Attempt to persist in PostgreSQL if configured
+  if (process.env.DATABASE_URL) {
+    try {
+      await ensureDatabaseSchema();
+      await db.query(
+        `INSERT INTO auth_nonces (wallet_address, nonce, expires_at)
+         VALUES ($1, $2, $3)`,
+        [normalizedAddress, nonce, expiresAt]
+      );
+    } catch (err) {
+      console.warn("[nonce] Nonce cached in-memory (PostgreSQL unavailable):", (err as Error).message);
+    }
+  }
 
   return NextResponse.json(
     { nonce },
