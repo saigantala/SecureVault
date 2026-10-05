@@ -5,12 +5,21 @@ import { NextResponse } from "next/server";
 import { db, ensureDatabaseSchema } from "@/lib/db";
 
 export async function GET() {
-  const hasDbUrl = Boolean(process.env.DATABASE_URL);
+  const rawDbUrl = process.env.DATABASE_URL;
+  const hasDbUrl = Boolean(rawDbUrl);
   let dbStatus = "not_configured";
   let dbError: string | null = null;
   let tablesExist = false;
+  let dbHost = "none";
 
-  if (hasDbUrl) {
+  if (rawDbUrl) {
+    try {
+      const parsed = new URL(rawDbUrl);
+      dbHost = parsed.host;
+    } catch {
+      dbHost = "invalid_url";
+    }
+
     try {
       await ensureDatabaseSchema();
       const test = await db.query("SELECT 1 as connected");
@@ -21,9 +30,13 @@ export async function GET() {
         "SELECT to_regclass('public.auth_nonces') as tbl"
       );
       tablesExist = Boolean(tableCheck.rows[0]?.tbl);
-    } catch (err) {
+    } catch (err: unknown) {
       dbStatus = "error";
-      dbError = (err as Error).message || String(err);
+      if (err && typeof err === "object" && "errors" in err && Array.isArray((err as { errors: unknown[] }).errors)) {
+        dbError = (err as { errors: Error[] }).errors.map((e) => e.message || String(e)).join("; ");
+      } else {
+        dbError = err instanceof Error ? err.message : String(err);
+      }
     }
   }
 
@@ -32,6 +45,7 @@ export async function GET() {
     timestamp: new Date().toISOString(),
     database: {
       configured: hasDbUrl,
+      host: dbHost,
       status: dbStatus,
       tablesExist,
       error: dbError,

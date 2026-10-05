@@ -156,39 +156,49 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const rows = await db.query<{
-    file_id: string;
-    encrypted_name: string;
-    mime_type: string | null;
-    created_at: string;
-    version_no: number;
-    ciphertext_hash: string;
-    s3_pointer: string;
-    size_bytes: number;
-    iv: string;
-    prev_hash: string | null;
-  }>(
-    `SELECT
-       f.id            AS file_id,
-       f.encrypted_name,
-       f.mime_type,
-       f.created_at,
-       fv.version_no,
-       fv.ciphertext_hash,
-       fv.s3_pointer,
-       fv.size_bytes,
-       fv.iv,
-       fv.prev_hash
-     FROM files f
-     JOIN file_versions fv ON fv.file_id = f.id
-     WHERE f.owner_id = $1
-       AND f.deleted_at IS NULL
-       AND fv.version_no = (
-         SELECT MAX(v2.version_no) FROM file_versions v2 WHERE v2.file_id = f.id
-       )
-     ORDER BY f.created_at DESC`,
-    [session.sub]
-  );
+  try {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session.sub);
+    if (!isUuid || !process.env.DATABASE_URL) {
+      return NextResponse.json({ files: [] });
+    }
 
-  return NextResponse.json({ files: rows.rows });
+    const rows = await db.query<{
+      file_id: string;
+      encrypted_name: string;
+      mime_type: string | null;
+      created_at: string;
+      version_no: number;
+      ciphertext_hash: string;
+      s3_pointer: string;
+      size_bytes: number;
+      iv: string;
+      prev_hash: string | null;
+    }>(
+      `SELECT
+         f.id            AS file_id,
+         f.encrypted_name,
+         f.mime_type,
+         f.created_at,
+         fv.version_no,
+         fv.ciphertext_hash,
+         fv.s3_pointer,
+         fv.size_bytes,
+         fv.iv,
+         fv.prev_hash
+       FROM files f
+       JOIN file_versions fv ON fv.file_id = f.id
+       WHERE f.owner_id = $1
+         AND f.deleted_at IS NULL
+         AND fv.version_no = (
+           SELECT MAX(v2.version_no) FROM file_versions v2 WHERE v2.file_id = f.id
+         )
+       ORDER BY f.created_at DESC`,
+      [session.sub]
+    );
+
+    return NextResponse.json({ files: rows.rows });
+  } catch (err) {
+    console.warn("[api/files/GET] Warning:", (err as Error).message);
+    return NextResponse.json({ files: [] });
+  }
 }

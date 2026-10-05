@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SiweMessage } from "siwe";
 import { SignJWT } from "jose";
+import { randomUUID } from "crypto";
 import { db, verifyMemoryNonce, ensureDatabaseSchema } from "@/lib/db";
 import {
   verifyIpLimiter,
@@ -110,12 +111,19 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Upsert user, capture previous IP/UA ─────────────────────────────
-  let user = {
-    id: address,
-    last_ip: null as string | null,
-    last_user_agent: null as string | null,
+  let isDbUser = false;
+  let user: {
+    id: string;
+    last_ip: string | null;
+    last_user_agent: string | null;
+    role: string;
+    email: string | null;
+  } = {
+    id: randomUUID(),
+    last_ip: null,
+    last_user_agent: null,
     role: "user",
-    email: null as string | null,
+    email: null,
   };
 
   let isNewIp = false;
@@ -144,6 +152,7 @@ export async function POST(req: NextRequest) {
 
       if (userRow.rows[0]) {
         user = userRow.rows[0];
+        isDbUser = true;
         const prevIp = user.last_ip;
         const prevUA = user.last_user_agent;
         isNewIp = Boolean(prevIp && prevIp !== ip);
@@ -157,7 +166,7 @@ export async function POST(req: NextRequest) {
   const anomaly = isNewIp || isNewDevice;
   const anomalyReason = isNewIp ? "new_ip" : isNewDevice ? "new_device" : null;
 
-  if (anomaly && anomalyReason && user.id !== address) {
+  if (anomaly && anomalyReason && isDbUser) {
     try {
       await db.query(
         `INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata)
@@ -183,7 +192,7 @@ export async function POST(req: NextRequest) {
   }
 
   // If email was provided in the login payload, save it to the user's profile
-  if (body.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email) && user.id !== address) {
+  if (body.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email) && isDbUser) {
     try {
       await db.query(`UPDATE users SET email = $1 WHERE id = $2`, [
         body.email.trim().toLowerCase(),
@@ -193,7 +202,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Write login audit event ──────────────────────────────────────────
-  if (user.id !== address) {
+  if (isDbUser) {
     try {
       await db.query(
         `INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata)

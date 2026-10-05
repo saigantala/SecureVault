@@ -13,17 +13,25 @@ export default async function ProfilePage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const userRow = await db.query<{
-    email: string | null;
-    email_verified: boolean | null;
-    role: string;
-    created_at: string;
-  }>(
-    `SELECT email, email_verified, role, created_at FROM users WHERE id = $1`,
-    [session.sub]
-  );
+  let user: { email: string | null; email_verified: boolean | null; role: string; created_at: string } | null = null;
 
-  const user = userRow.rows[0];
+  try {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session.sub);
+    if (isUuid && process.env.DATABASE_URL) {
+      const userRow = await db.query<{
+        email: string | null;
+        email_verified: boolean | null;
+        role: string;
+        created_at: string;
+      }>(
+        `SELECT email, email_verified, role, created_at FROM users WHERE id = $1`,
+        [session.sub]
+      );
+      user = userRow.rows[0] ?? null;
+    }
+  } catch (err) {
+    console.warn("[profile] Could not query user:", (err as Error).message);
+  }
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl">

@@ -22,29 +22,42 @@ export default async function DashboardPage() {
   const shortAddr = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
   // Query user's personal vault statistics
-  const [filesResult, storageResult, receivedResult] = await Promise.all([
-    db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM files WHERE owner_id = $1 AND deleted_at IS NULL`,
-      [session!.sub]
-    ),
-    db.query<{ total: string }>(
-      `SELECT COALESCE(SUM(fv.size_bytes), 0) AS total
-       FROM file_versions fv
-       JOIN files f ON f.id = fv.file_id
-       WHERE f.owner_id = $1 AND f.deleted_at IS NULL`,
-      [session!.sub]
-    ),
-    db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM access_grants
-       WHERE granted_to = $1 AND revoked_at IS NULL
-         AND (expires_at IS NULL OR expires_at > now())`,
-      [session!.sub]
-    ),
-  ]);
+  let fileCount = 0;
+  let storageBytes = 0;
+  let receivedGrantsCount = 0;
+  let dbConnected = true;
 
-  const fileCount = parseInt(filesResult.rows[0].count, 10);
-  const storageBytes = parseInt(storageResult.rows[0].total, 10);
-  const receivedGrantsCount = parseInt(receivedResult.rows[0].count, 10);
+  try {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session.sub);
+    if (isUuid && process.env.DATABASE_URL) {
+      const [filesResult, storageResult, receivedResult] = await Promise.all([
+        db.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM files WHERE owner_id = $1 AND deleted_at IS NULL`,
+          [session.sub]
+        ),
+        db.query<{ total: string }>(
+          `SELECT COALESCE(SUM(fv.size_bytes), 0) AS total
+           FROM file_versions fv
+           JOIN files f ON f.id = fv.file_id
+           WHERE f.owner_id = $1 AND f.deleted_at IS NULL`,
+          [session.sub]
+        ),
+        db.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM access_grants
+           WHERE granted_to = $1 AND revoked_at IS NULL
+             AND (expires_at IS NULL OR expires_at > now())`,
+          [session.sub]
+        ),
+      ]);
+
+      fileCount = parseInt(filesResult.rows[0]?.count ?? "0", 10);
+      storageBytes = parseInt(storageResult.rows[0]?.total ?? "0", 10);
+      receivedGrantsCount = parseInt(receivedResult.rows[0]?.count ?? "0", 10);
+    }
+  } catch (err) {
+    dbConnected = false;
+    console.warn("[dashboard] Could not fetch vault statistics:", (err as Error).message);
+  }
 
   const cards = [
     {
@@ -112,6 +125,21 @@ export default async function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* DB Connection Notice if database is in error */}
+      {!dbConnected && (
+        <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/80 text-amber-200 text-xs flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-base">⚠️</span>
+            <span>
+              <strong>Database Notice:</strong> Could not connect to PostgreSQL. If deployed on Render, please verify that your Render PostgreSQL <strong>Internal Database URL</strong> is set as <code className="bg-amber-900/60 px-1 py-0.5 rounded">DATABASE_URL</code> in Render Environment Variables.
+            </span>
+          </div>
+          <Link href="/api/health" target="_blank" className="shrink-0 px-2.5 py-1 rounded-lg bg-amber-800/50 hover:bg-amber-700/50 font-medium text-amber-100 transition-colors">
+            Check Status
+          </Link>
+        </div>
+      )}
 
       {/* ── Quick Stats Strip ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

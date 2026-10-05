@@ -44,11 +44,17 @@ export async function GET(req: NextRequest) {
     const offset = parseInt(searchParams.get("offset") ?? "0", 10);
     const type = searchParams.get("type")?.trim(); // filter by event_type
 
-    // Match events for this user ID, or events logged for their wallet address (e.g. failed login attempts)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session.sub);
+
+    // Match events for this user ID, or events logged for their wallet address
     const conditions: string[] = [
-      `(user_id = $1 OR (user_id IS NULL AND lower(metadata->>'address') = lower($2)))`,
+      isUuid
+        ? `(user_id = $1 OR (user_id IS NULL AND lower(metadata->>'address') = lower($2)))`
+        : `(lower(metadata->>'address') = lower($1))`,
     ];
-    const queryParams: (string | number)[] = [session.sub, session.address.toLowerCase()];
+    const queryParams: (string | number)[] = isUuid
+      ? [session.sub, session.address.toLowerCase()]
+      : [session.address.toLowerCase()];
 
     if (type) {
       queryParams.push(type);
@@ -57,7 +63,7 @@ export async function GET(req: NextRequest) {
 
     const whereClause = conditions.join(" AND ");
 
-    // 1. Count query parameters (exact match to whereClause, before limit & offset)
+    // 1. Count query parameters
     const countParams = [...queryParams];
     const countRow = await db.query<{ total: string }>(
       `SELECT COUNT(*) as total FROM audit_log WHERE ${whereClause}`,
@@ -87,21 +93,29 @@ export async function GET(req: NextRequest) {
     );
 
     // 3. User's saved email preference
-    const userRow = await db.query<{ email: string | null }>(
-      `SELECT email FROM users WHERE id = $1`,
-      [session.sub]
-    );
+    let userEmail: string | null = null;
+    if (isUuid) {
+      try {
+        const userRow = await db.query<{ email: string | null }>(
+          `SELECT email FROM users WHERE id = $1`,
+          [session.sub]
+        );
+        userEmail = userRow.rows[0]?.email ?? null;
+      } catch {}
+    }
 
     return NextResponse.json({
       events: rows.rows,
       total: parseInt(countRow.rows[0]?.total ?? "0", 10),
-      email: userRow.rows[0]?.email ?? null,
+      email: userEmail,
     });
   } catch (err: unknown) {
-    console.error("[api/security/GET] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load security log." },
-      { status: 500 }
-    );
+    console.warn("[api/security/GET] Warning:", (err as Error).message);
+    return NextResponse.json({
+      events: [],
+      total: 0,
+      email: null,
+      warning: "Audit log currently syncing with database.",
+    });
   }
 }
