@@ -13,14 +13,20 @@ import dotenv from "dotenv";
 
 dotenv.config({ path: ".env.local" });
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  console.error("❌  DATABASE_URL is not set.");
-  process.exit(1);
-}
-
 async function main() {
-  const client = new Client({ connectionString: DATABASE_URL });
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.error("❌  DATABASE_URL is not set.");
+    process.exit(1);
+  }
+
+  const isLocal =
+    dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1");
+
+  const client = new Client({
+    connectionString: dbUrl,
+    ssl: isLocal ? false : { rejectUnauthorized: false },
+  });
 
   try {
     await client.connect();

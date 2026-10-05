@@ -118,5 +118,19 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
+## 🌐 Deploy to Render
+
+Deploy SecureVault directly on [Render](https://render.com) using the included [`render.yaml`](./render.yaml) blueprint:
+
+1. Create a free account at [dashboard.render.com](https://dashboard.render.com).
+2. Go to **New +** -> **Blueprint**.
+3. Select this repository: `saigantala/SecureVault`.
+4. Enter your environment secrets (`SMTP_USER`, `SMTP_PASS`, `NEXT_PUBLIC_WALLETCONNECT_ID`).
+5. Click **Apply** to deploy both the Next.js Web Service and PostgreSQL Database automatically.
+
+For step-by-step instructions with manual setup, see [RENDER_DEPLOYMENT.md](./RENDER_DEPLOYMENT.md).
+
+---
+
 ## 📄 License
 MIT License. Created by [saigantala](https://github.com/saigantala).

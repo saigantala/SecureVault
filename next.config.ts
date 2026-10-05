@@ -56,8 +56,8 @@ const nextConfig: NextConfig = {
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob:",
-              // Direct connect to Web3 RPCs, WalletConnect relay, S3/R2 storage, and Cloudflare tunnel WebSockets
-              "connect-src 'self' https://*.walletconnect.com wss://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.org https://*.infura.io https://*.alchemyapi.io https://*.s3.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.backblazeb2.com http://localhost:* ws://localhost:* wss://localhost:* https://*.trycloudflare.com wss://*.trycloudflare.com",
+              // Direct connect to Web3 RPCs, WalletConnect relay, S3/R2 storage, Cloudflare tunnels, and Render
+              "connect-src 'self' https://*.onrender.com wss://*.onrender.com https://*.walletconnect.com wss://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.org https://*.infura.io https://*.alchemyapi.io https://*.s3.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.backblazeb2.com http://localhost:* ws://localhost:* wss://localhost:* https://*.trycloudflare.com wss://*.trycloudflare.com",
               "font-src 'self' data:",
               "object-src 'none'",
               "frame-ancestors 'none'",

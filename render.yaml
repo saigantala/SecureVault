@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: securevault-web
+    env: node
+    plan: free
+    buildCommand: npm install && npm run db:migrate && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: securevault-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_WALLETCONNECT_ID
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: ALERT_FROM_EMAIL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        fromService:
+          type: web
+          name: securevault-web
+          property: url
+
+databases:
+  - name: securevault-db
+    databaseName: securevault
+    user: securevault
+    plan: free

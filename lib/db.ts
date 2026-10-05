@@ -15,15 +15,17 @@ declare global {
 }
 
 function createPool() {
+  const isLocal =
+    !process.env.DATABASE_URL ||
+    process.env.DATABASE_URL.includes("localhost") ||
+    process.env.DATABASE_URL.includes("127.0.0.1");
+
   return new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
-    ssl:
-      process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: true }
-        : false,
+    ssl: isLocal ? false : { rejectUnauthorized: false },
   });
 }
 
