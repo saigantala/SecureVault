@@ -50,18 +50,31 @@ export function verifyMemoryNonce(address: string, nonce: string): boolean {
   return false;
 }
 
+function getCleanDatabaseUrl(): string | undefined {
+  const rawUrl = process.env.DATABASE_URL;
+  if (!rawUrl) return undefined;
+  try {
+    const parsed = new URL(rawUrl);
+    // Remove sslmode=require from query params so pg respects ssl: { rejectUnauthorized: false }
+    parsed.searchParams.delete("sslmode");
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 function createPool() {
-  const hasUrl = Boolean(process.env.DATABASE_URL);
+  const rawUrl = process.env.DATABASE_URL;
   const isLocal =
-    !hasUrl ||
-    process.env.DATABASE_URL?.includes("localhost") ||
-    process.env.DATABASE_URL?.includes("127.0.0.1");
+    !rawUrl ||
+    rawUrl.includes("localhost") ||
+    rawUrl.includes("127.0.0.1");
 
   return new Pool({
-    connectionString: process.env.DATABASE_URL || undefined,
+    connectionString: getCleanDatabaseUrl(),
     max: 10,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 10_000,
     ssl: isLocal ? false : { rejectUnauthorized: false },
   });
 }

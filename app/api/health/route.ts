@@ -23,7 +23,7 @@ export async function GET() {
       tablesExist = Boolean(tableCheck.rows[0]?.tbl);
     } catch (err) {
       dbStatus = "error";
-      dbError = (err as Error).message;
+      dbError = (err as Error).message || String(err);
     }
   }
 
