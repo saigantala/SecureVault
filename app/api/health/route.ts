@@ -46,6 +46,7 @@ export async function GET() {
     database: {
       configured: hasDbUrl,
       host: dbHost,
+      connected: dbStatus === "connected",
       status: dbStatus,
       tablesExist,
       error: dbError,
