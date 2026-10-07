@@ -50,9 +50,23 @@ export function verifyMemoryNonce(address: string, nonce: string): boolean {
   return false;
 }
 
-function getCleanDatabaseUrl(): string | undefined {
+export function isDatabaseConfigured(): boolean {
   const rawUrl = process.env.DATABASE_URL;
-  if (!rawUrl) return undefined;
+  if (!rawUrl) return false;
+  // If running in production on Render/cloud and DATABASE_URL points to localhost,
+  // do not treat as configured to prevent ECONNREFUSED socket errors
+  if (
+    process.env.NODE_ENV === "production" &&
+    (rawUrl.includes("localhost") || rawUrl.includes("127.0.0.1"))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function getCleanDatabaseUrl(): string | undefined {
+  if (!isDatabaseConfigured()) return undefined;
+  const rawUrl = process.env.DATABASE_URL!;
   try {
     const parsed = new URL(rawUrl);
     // Remove sslmode=require from query params so pg respects ssl: { rejectUnauthorized: false }
@@ -185,7 +199,7 @@ CREATE INDEX IF NOT EXISTS idx_email_verif_code ON email_verifications(email, co
 let schemaPromise: Promise<void> | null = null;
 
 export async function ensureDatabaseSchema(): Promise<void> {
-  if (!process.env.DATABASE_URL) return;
+  if (!isDatabaseConfigured()) return;
   if (schemaPromise) return schemaPromise;
 
   schemaPromise = (async () => {

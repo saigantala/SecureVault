@@ -7,7 +7,7 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { db, ensureDatabaseSchema } from "@/lib/db";
+import { db, ensureDatabaseSchema, isDatabaseConfigured } from "@/lib/db";
 
 const STORAGE_DIR = path.resolve(process.cwd(), ".storage");
 const META_FILE = path.resolve(STORAGE_DIR, "vault_meta.json");
@@ -108,7 +108,7 @@ export async function upsertUser(
   const now = new Date().toISOString();
 
   // Try PostgreSQL
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       const res = await db.query<{
@@ -177,7 +177,7 @@ export async function getUser(identifier: string): Promise<StoredUser | null> {
   const norm = identifier.toLowerCase();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
 
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       const queryText = isUuid
@@ -214,7 +214,7 @@ export async function getUser(identifier: string): Promise<StoredUser | null> {
 
 export async function getUserPublicKey(walletAddress: string): Promise<Record<string, unknown> | null> {
   const normAddr = walletAddress.toLowerCase();
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       const res = await db.query<{ public_key: Record<string, unknown> | null }>(
@@ -232,7 +232,7 @@ export async function getUserPublicKey(walletAddress: string): Promise<Record<st
 
 export async function updateUserPublicKey(walletAddress: string, publicKey: Record<string, unknown>): Promise<void> {
   const normAddr = walletAddress.toLowerCase();
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       await db.query(
@@ -285,7 +285,7 @@ export async function saveFile(params: SaveFileParams): Promise<{ fileId: string
   const targetFileId = existingFileId || explicitFileId || randomUUID();
 
   // Try PostgreSQL first
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       // Ensure user exists in PostgreSQL
@@ -412,7 +412,7 @@ export async function listUserFiles(ownerId: string, ownerAddress: string) {
   const normAddr = ownerAddress.toLowerCase();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ownerId);
 
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       const rows = await db.query<{
@@ -491,7 +491,7 @@ export async function getFileDownloadMeta(
   const normAddr = ownerAddress.toLowerCase();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ownerId);
 
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       const versionFilter = versionNo
@@ -549,7 +549,7 @@ export async function getFileVersions(fileId: string, ownerId: string, ownerAddr
   const normAddr = ownerAddress.toLowerCase();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ownerId);
 
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       const rows = await db.query<{
@@ -612,7 +612,7 @@ export async function deleteVaultFile(
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ownerId);
   const now = new Date().toISOString();
 
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       await db.query(
@@ -654,7 +654,7 @@ export async function recordAuditEvent(event: {
   const now = new Date().toISOString();
   const isUuid = userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
 
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       await db.query(
@@ -689,7 +689,7 @@ export async function recordAuditEvent(event: {
 export async function getAuditEvents(walletAddress: string, limit = 50, offset = 0) {
   const normAddr = walletAddress.toLowerCase();
 
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await ensureDatabaseSchema();
       const rows = await db.query<{
@@ -725,7 +725,7 @@ export async function getAuditEvents(walletAddress: string, limit = 50, offset =
 // ── 4. Dashboard Stats ────────────────────────────────────────────────────────
 export async function getDashboardStats(ownerId: string, ownerAddress: string) {
   let dbConnected = false;
-  if (process.env.DATABASE_URL) {
+  if (isDatabaseConfigured()) {
     try {
       await db.query("SELECT 1");
       dbConnected = true;

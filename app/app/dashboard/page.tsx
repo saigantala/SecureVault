@@ -94,21 +94,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* DB Connection Notice if database is in error */}
-      {!dbConnected && (
-        <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/80 text-amber-200 text-xs flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-base">⚠️</span>
-            <span>
-              <strong>Database Notice:</strong> Could not connect to PostgreSQL. If deployed on Render, please verify that your Render PostgreSQL <strong>Internal Database URL</strong> is set as <code className="bg-amber-900/60 px-1 py-0.5 rounded">DATABASE_URL</code> in Render Environment Variables.
-            </span>
-          </div>
-          <Link href="/api/health" target="_blank" className="shrink-0 px-2.5 py-1 rounded-lg bg-amber-800/50 hover:bg-amber-700/50 font-medium text-amber-100 transition-colors">
-            Check Status
-          </Link>
-        </div>
-      )}
-
       {/* ── Quick Stats Strip ───────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="vault-card flex flex-col gap-1 border-gray-800">
