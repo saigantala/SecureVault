@@ -95,77 +95,89 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const received = req.nextUrl.searchParams.get("received") === "true";
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session.sub);
 
-  if (received) {
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json(received ? { receivedGrants: [] } : { grants: [] });
+  }
+
+  try {
+    if (received) {
+      const rows = await db.query<{
+        grant_id: string;
+        file_id: string;
+        wrapped_key: string;
+        expires_at: string | null;
+        created_at: string;
+        encrypted_name: string;
+        mime_type: string | null;
+        granted_by_address: string;
+        version_no: number;
+        ciphertext_hash: string;
+        size_bytes: number;
+      }>(
+        `SELECT ag.id AS grant_id,
+                ag.file_id,
+                ag.wrapped_key,
+                ag.expires_at,
+                ag.created_at,
+                f.encrypted_name,
+                f.mime_type,
+                u.wallet_address AS granted_by_address,
+                fv.version_no,
+                fv.ciphertext_hash,
+                fv.size_bytes
+         FROM access_grants ag
+         JOIN users u ON u.id = ag.granted_by
+         JOIN files f ON f.id = ag.file_id
+         JOIN file_versions fv ON fv.file_id = f.id
+           AND fv.version_no = (
+             SELECT MAX(v2.version_no) FROM file_versions v2 WHERE v2.file_id = f.id
+           )
+         JOIN users grantee ON grantee.id = ag.granted_to
+         WHERE (ag.granted_to = $1 OR lower(grantee.wallet_address) = $2)
+           AND ag.revoked_at IS NULL
+           AND (ag.expires_at IS NULL OR ag.expires_at > now())
+           AND f.deleted_at IS NULL
+         ORDER BY ag.created_at DESC`,
+        [isUuid ? session.sub : "00000000-0000-0000-0000-000000000000", session.address.toLowerCase()]
+      );
+
+      return NextResponse.json({ receivedGrants: rows.rows });
+    }
+
+    const fileId = req.nextUrl.searchParams.get("fileId");
+    if (!fileId) return NextResponse.json({ error: "fileId or received=true required." }, { status: 400 });
+
+    const ownerCheck = await db.query(
+      `SELECT f.id FROM files f
+       JOIN users u ON u.id = f.owner_id
+       WHERE f.id = $1 AND (f.owner_id = $2 OR lower(u.wallet_address) = $3) AND f.deleted_at IS NULL`,
+      [fileId, isUuid ? session.sub : "00000000-0000-0000-0000-000000000000", session.address.toLowerCase()]
+    );
+    if (ownerCheck.rowCount === 0) {
+      return NextResponse.json({ error: "File not found." }, { status: 404 });
+    }
+
     const rows = await db.query<{
-      grant_id: string;
-      file_id: string;
-      wrapped_key: string;
+      id: string;
+      granted_to_address: string;
       expires_at: string | null;
+      revoked_at: string | null;
       created_at: string;
-      encrypted_name: string;
-      mime_type: string | null;
-      granted_by_address: string;
-      version_no: number;
-      ciphertext_hash: string;
-      size_bytes: number;
     }>(
-      `SELECT ag.id AS grant_id,
-              ag.file_id,
-              ag.wrapped_key,
-              ag.expires_at,
-              ag.created_at,
-              f.encrypted_name,
-              f.mime_type,
-              u.wallet_address AS granted_by_address,
-              fv.version_no,
-              fv.ciphertext_hash,
-              fv.size_bytes
+      `SELECT ag.id, u.wallet_address AS granted_to_address,
+              ag.expires_at, ag.revoked_at, ag.created_at
        FROM access_grants ag
-       JOIN users u ON u.id = ag.granted_by
-       JOIN files f ON f.id = ag.file_id
-       JOIN file_versions fv ON fv.file_id = f.id
-         AND fv.version_no = (
-           SELECT MAX(v2.version_no) FROM file_versions v2 WHERE v2.file_id = f.id
-         )
-       WHERE ag.granted_to = $1
-         AND ag.revoked_at IS NULL
-         AND (ag.expires_at IS NULL OR ag.expires_at > now())
-         AND f.deleted_at IS NULL
+       JOIN users u ON u.id = ag.granted_to
+       WHERE ag.file_id = $1
        ORDER BY ag.created_at DESC`,
-      [session.sub]
+      [fileId]
     );
 
-    return NextResponse.json({ receivedGrants: rows.rows });
+    return NextResponse.json({ grants: rows.rows });
+  } catch (err) {
+    console.warn("[api/grants/GET] Warning:", (err as Error).message);
+    return NextResponse.json(received ? { receivedGrants: [] } : { grants: [] });
   }
-
-  const fileId = req.nextUrl.searchParams.get("fileId");
-  if (!fileId) return NextResponse.json({ error: "fileId or received=true required." }, { status: 400 });
-
-  // Verify ownership
-  const ownerCheck = await db.query(
-    `SELECT id FROM files WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`,
-    [fileId, session.sub]
-  );
-  if (ownerCheck.rowCount === 0) {
-    return NextResponse.json({ error: "File not found." }, { status: 404 });
-  }
-
-  const rows = await db.query<{
-    id: string;
-    granted_to_address: string;
-    expires_at: string | null;
-    revoked_at: string | null;
-    created_at: string;
-  }>(
-    `SELECT ag.id, u.wallet_address AS granted_to_address,
-            ag.expires_at, ag.revoked_at, ag.created_at
-     FROM access_grants ag
-     JOIN users u ON u.id = ag.granted_to
-     WHERE ag.file_id = $1 AND ag.granted_by = $2
-     ORDER BY ag.created_at DESC`,
-    [fileId, session.sub]
-  );
-
-  return NextResponse.json({ grants: rows.rows });
 }

@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
-import { db } from "@/lib/db";
+import { getUserPublicKey, updateUserPublicKey } from "@/lib/vaultStore";
 
 interface RouteParams {
   params: Promise<{ address: string }>;
@@ -15,20 +15,22 @@ interface RouteParams {
 
 export async function GET(_req: NextRequest, { params }: RouteParams) {
   const { address } = await params;
-
-  const row = await db.query<{ public_key: Record<string, unknown> | null }>(
-    `SELECT public_key FROM users WHERE wallet_address = $1`,
-    [address.toLowerCase()]
-  );
-
-  if (row.rowCount === 0 || !row.rows[0].public_key) {
+  try {
+    const publicKey = await getUserPublicKey(address);
+    if (!publicKey) {
+      return NextResponse.json(
+        { error: "User has no public key registered." },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({ publicKey });
+  } catch (err) {
+    console.warn("[api/users/pubkey/GET] Error:", (err as Error).message);
     return NextResponse.json(
-      { error: "User has no public key registered." },
-      { status: 404 }
+      { error: "Failed to retrieve public key." },
+      { status: 500 }
     );
   }
-
-  return NextResponse.json({ publicKey: row.rows[0].public_key });
 }
 
 export async function PUT(req: NextRequest, { params }: RouteParams) {
@@ -40,7 +42,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   const { address } = await params;
 
   // Only the session owner can update their own key
-  if (session.address !== address.toLowerCase()) {
+  if (session.address.toLowerCase() !== address.toLowerCase()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -57,10 +59,14 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     );
   }
 
-  await db.query(
-    `UPDATE users SET public_key = $1 WHERE id = $2`,
-    [JSON.stringify(publicKey), session.sub]
-  );
-
-  return NextResponse.json({ ok: true });
+  try {
+    await updateUserPublicKey(session.address, publicKey);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[api/users/pubkey/PUT] Error:", err);
+    return NextResponse.json(
+      { error: "Failed to store public key." },
+      { status: 500 }
+    );
+  }
 }

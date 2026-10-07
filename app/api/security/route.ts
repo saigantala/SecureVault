@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest, getSession } from "@/lib/session";
 import { db } from "@/lib/db";
+import { upsertUser, getAuditEvents, getUser } from "@/lib/vaultStore";
 
 // PATCH /api/security — update user's alert email preference
 export async function PATCH(req: NextRequest) {
@@ -19,10 +20,16 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
     }
 
-    await db.query(
-      `UPDATE users SET email = $1 WHERE id = $2`,
-      [email || null, session.sub]
-    );
+    await upsertUser(session.address, session.role || "user", email || undefined);
+
+    if (process.env.DATABASE_URL) {
+      try {
+        await db.query(
+          `UPDATE users SET email = $1 WHERE id = $2 OR lower(wallet_address) = $3`,
+          [email || null, session.sub, session.address.toLowerCase()]
+        );
+      } catch {}
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
@@ -42,72 +49,14 @@ export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl;
     const limit = Math.min(parseInt(searchParams.get("limit") ?? "50", 10), 200);
     const offset = parseInt(searchParams.get("offset") ?? "0", 10);
-    const type = searchParams.get("type")?.trim(); // filter by event_type
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session.sub);
-
-    // Match events for this user ID, or events logged for their wallet address
-    const conditions: string[] = [
-      isUuid
-        ? `(user_id = $1 OR (user_id IS NULL AND lower(metadata->>'address') = lower($2)))`
-        : `(lower(metadata->>'address') = lower($1))`,
-    ];
-    const queryParams: (string | number)[] = isUuid
-      ? [session.sub, session.address.toLowerCase()]
-      : [session.address.toLowerCase()];
-
-    if (type) {
-      queryParams.push(type);
-      conditions.push(`event_type = $${queryParams.length}`);
-    }
-
-    const whereClause = conditions.join(" AND ");
-
-    // 1. Count query parameters
-    const countParams = [...queryParams];
-    const countRow = await db.query<{ total: string }>(
-      `SELECT COUNT(*) as total FROM audit_log WHERE ${whereClause}`,
-      countParams
-    );
-
-    // 2. Main query with LIMIT and OFFSET
-    queryParams.push(limit);
-    const limitIndex = queryParams.length;
-    queryParams.push(offset);
-    const offsetIndex = queryParams.length;
-
-    const rows = await db.query<{
-      id: string;
-      event_type: string;
-      ip_address: string | null;
-      user_agent: string | null;
-      metadata: Record<string, unknown> | null;
-      created_at: string;
-    }>(
-      `SELECT id, event_type, ip_address::text, user_agent, metadata, created_at
-       FROM audit_log
-       WHERE ${whereClause}
-       ORDER BY created_at DESC
-       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
-      queryParams
-    );
-
-    // 3. User's saved email preference
-    let userEmail: string | null = null;
-    if (isUuid) {
-      try {
-        const userRow = await db.query<{ email: string | null }>(
-          `SELECT email FROM users WHERE id = $1`,
-          [session.sub]
-        );
-        userEmail = userRow.rows[0]?.email ?? null;
-      } catch {}
-    }
+    const { events, total } = await getAuditEvents(session.address, limit, offset);
+    const user = await getUser(session.address);
 
     return NextResponse.json({
-      events: rows.rows,
-      total: parseInt(countRow.rows[0]?.total ?? "0", 10),
-      email: userEmail,
+      events,
+      total,
+      email: user?.email ?? null,
     });
   } catch (err: unknown) {
     console.warn("[api/security/GET] Warning:", (err as Error).message);

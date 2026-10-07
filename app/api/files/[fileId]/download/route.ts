@@ -1,18 +1,17 @@
-// GET /api/files/[fileId]/download?version=N
-// Returns a short-lived presigned S3 URL so the browser can fetch
+// app/api/files/[fileId]/download/route.ts
+// Returns a short-lived download URL so the browser can fetch
 // the ciphertext blob directly, then decrypt it client-side.
 //
 // Security:
 //   - Auth required (session cookie checked)
-//   - Ownership enforced in the DB query
-//   - Presigned URL expires in 5 minutes
-//   - Audit log entry written for every download
-//   - Server never touches the ciphertext content
+//   - Ownership enforced in the query
+//   - Audit log entry recorded for every download
+//   - Server never touches plaintext content
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
-import { db } from "@/lib/db";
 import { getPresignedDownloadUrl } from "@/lib/s3";
+import { getFileDownloadMeta, recordAuditEvent } from "@/lib/vaultStore";
 
 interface RouteParams {
   params: Promise<{ fileId: string }>;
@@ -26,56 +25,34 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const { fileId } = await params;
   const versionParam = req.nextUrl.searchParams.get("version");
+  const versionNo = versionParam ? parseInt(versionParam, 10) : undefined;
 
-  // Build query — default to latest version
-  const versionFilter = versionParam
-    ? `AND fv.version_no = ${parseInt(versionParam, 10)}`
-    : `AND fv.version_no = (SELECT MAX(v2.version_no) FROM file_versions v2 WHERE v2.file_id = f.id)`;
+  const meta = await getFileDownloadMeta(fileId, session.sub, session.address, versionNo);
 
-  const row = await db.query<{
-    s3_pointer: string;
-    iv: string;
-    ciphertext_hash: string;
-    version_no: number;
-    size_bytes: number;
-  }>(
-    `SELECT fv.s3_pointer, fv.iv, fv.ciphertext_hash, fv.version_no, fv.size_bytes
-     FROM files f
-     JOIN file_versions fv ON fv.file_id = f.id
-     WHERE f.id = $1
-       AND f.owner_id = $2
-       AND f.deleted_at IS NULL
-       ${versionFilter}
-     LIMIT 1`,
-    [fileId, session.sub]
-  );
-
-  if (row.rowCount === 0) {
-    return NextResponse.json({ error: "File not found." }, { status: 404 });
+  if (!meta) {
+    return NextResponse.json({ error: "File not found or access denied." }, { status: 404 });
   }
 
-  const { s3_pointer, iv, ciphertext_hash, version_no, size_bytes } = row.rows[0];
+  const { s3_pointer, iv, ciphertext_hash, version_no, size_bytes } = meta;
 
-  // Generate a short-lived presigned URL (5 min)
+  // Generate a short-lived download URL
   const presignedUrl = await getPresignedDownloadUrl(s3_pointer, 300);
 
-  // Audit log
+  // Record download audit event (non-blocking)
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "";
-  await db.query(
-    `INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata)
-     VALUES ($1, 'download', $2, $3, $4)`,
-    [
-      session.sub,
-      ip,
-      req.headers.get("user-agent") ?? "",
-      JSON.stringify({ fileId, versionNo: version_no, ciphertextHash: ciphertext_hash }),
-    ]
-  );
+  void recordAuditEvent({
+    userId: session.sub,
+    walletAddress: session.address,
+    eventType: "download",
+    ip,
+    userAgent: req.headers.get("user-agent") ?? "",
+    metadata: { fileId, versionNo: version_no, ciphertextHash: ciphertext_hash },
+  });
 
   return NextResponse.json({
     presignedUrl,
-    iv,                               // base64 IV — needed to decrypt
-    ciphertextHash: ciphertext_hash,  // for client-side integrity check before decrypt
+    iv,
+    ciphertextHash: ciphertext_hash,
     versionNo: version_no,
     sizeBytes: size_bytes,
   });

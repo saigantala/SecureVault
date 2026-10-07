@@ -1,6 +1,6 @@
 // app/app/dashboard/page.tsx — /app/dashboard (protected)
 import { getSession } from "@/lib/session";
-import { db } from "@/lib/db";
+import { getDashboardStats } from "@/lib/vaultStore";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -21,43 +21,11 @@ export default async function DashboardPage() {
   const addr = session.address;
   const shortAddr = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
-  // Query user's personal vault statistics
-  let fileCount = 0;
-  let storageBytes = 0;
-  let receivedGrantsCount = 0;
-  let dbConnected = true;
-
-  try {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session.sub);
-    if (isUuid && process.env.DATABASE_URL) {
-      const [filesResult, storageResult, receivedResult] = await Promise.all([
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM files WHERE owner_id = $1 AND deleted_at IS NULL`,
-          [session.sub]
-        ),
-        db.query<{ total: string }>(
-          `SELECT COALESCE(SUM(fv.size_bytes), 0) AS total
-           FROM file_versions fv
-           JOIN files f ON f.id = fv.file_id
-           WHERE f.owner_id = $1 AND f.deleted_at IS NULL`,
-          [session.sub]
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM access_grants
-           WHERE granted_to = $1 AND revoked_at IS NULL
-             AND (expires_at IS NULL OR expires_at > now())`,
-          [session.sub]
-        ),
-      ]);
-
-      fileCount = parseInt(filesResult.rows[0]?.count ?? "0", 10);
-      storageBytes = parseInt(storageResult.rows[0]?.total ?? "0", 10);
-      receivedGrantsCount = parseInt(receivedResult.rows[0]?.count ?? "0", 10);
-    }
-  } catch (err) {
-    dbConnected = false;
-    console.warn("[dashboard] Could not fetch vault statistics:", (err as Error).message);
-  }
+  // Query user's personal vault statistics from hybrid vaultStore
+  const { fileCount, storageBytes, receivedGrantsCount, dbConnected } = await getDashboardStats(
+    session.sub,
+    session.address
+  );
 
   const cards = [
     {
