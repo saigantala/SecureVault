@@ -50,6 +50,15 @@ export async function GET() {
       status: dbStatus,
       tablesExist,
       error: dbError,
+      advice:
+        dbStatus !== "connected" && (dbHost.includes("localhost") || dbHost.includes("127.0.0.1"))
+          ? "DATABASE_URL is currently set to localhost:5433 (your PC). Render is in the cloud and cannot connect to your personal PC. In your Render Dashboard, create a PostgreSQL database and paste its Internal Database URL into your Web Service Environment tab."
+          : undefined,
+    },
+    vaultStore: {
+      status: "operational",
+      fallbackActive: dbStatus !== "connected",
+      mode: dbStatus === "connected" ? "postgresql" : "local_fault_tolerant",
     },
     environment: {
       nodeEnv: process.env.NODE_ENV,
